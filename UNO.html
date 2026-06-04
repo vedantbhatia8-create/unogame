@@ -1,0 +1,1538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>UNO — Play Together</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #0a0810;
+    display: grid; place-items: center;
+    overflow: hidden;
+    font-family: 'Nunito', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+
+  @keyframes ovFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes unoPulse {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.07); filter: brightness(1.12); }
+  }
+  @keyframes playLand {
+    from { transform: rotate(4deg) translateY(-40px) scale(1.12); opacity: 0.4; }
+    to   { transform: rotate(4deg) translateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes drawHint {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+  @keyframes pendPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  @keyframes confFall {
+    0% { transform: translateY(0) rotate(0); opacity: 1; }
+    100% { transform: translateY(520px) rotate(540deg); opacity: 0.9; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- ── Game Engine ──────────────────────────────────────────── -->
+<script>
+/* uno-engine — pure game logic. Attaches window.UnoEngine. */
+(function () {
+  const COLORS = ['red', 'yellow', 'green', 'blue'];
+  const HEX = { red: '#E4002B', yellow: '#FFC400', green: '#1FA84C', blue: '#0095DA', wild: '#17171F' };
+  const BOT_NAMES = ['Maya', 'Leo', 'Priya', 'Sam', 'Jordan', 'Aisha', 'Marco', 'Nina', 'Theo'];
+  const AVATARS = [
+    { bg: '#FF6B6B', glyph: '🦊' }, { bg: '#4ECDC4', glyph: '🐧' },
+    { bg: '#FFD166', glyph: '🐯' }, { bg: '#A78BFA', glyph: '🦄' },
+    { bg: '#F78FB3', glyph: '🐰' }, { bg: '#6EE7B7', glyph: '🐸' },
+    { bg: '#FCA5A5', glyph: '🦁' }, { bg: '#93C5FD', glyph: '🐳' },
+    { bg: '#FBBF24', glyph: '🐥' },
+  ];
+  let _idc = 0;
+  const uid = () => 'c' + (++_idc);
+
+  function buildDeck() {
+    const deck = [];
+    for (const color of COLORS) {
+      deck.push({ id: uid(), color, kind: 'number', value: 0 });
+      for (let v = 1; v <= 9; v++) {
+        deck.push({ id: uid(), color, kind: 'number', value: v });
+        deck.push({ id: uid(), color, kind: 'number', value: v });
+      }
+      for (let i = 0; i < 2; i++) {
+        deck.push({ id: uid(), color, kind: 'skip' });
+        deck.push({ id: uid(), color, kind: 'reverse' });
+        deck.push({ id: uid(), color, kind: 'draw2' });
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      deck.push({ id: uid(), color: 'wild', kind: 'wild' });
+      deck.push({ id: uid(), color: 'wild', kind: 'wild4' });
+    }
+    return deck;
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function isWild(card) { return card.kind === 'wild' || card.kind === 'wild4'; }
+
+  function canPlay(card, top, activeColor, pending, allowStack) {
+    if (pending.draw > 0) {
+      if (!allowStack) return false;
+      if (pending.type === 'draw2') return card.kind === 'draw2' || card.kind === 'wild4';
+      if (pending.type === 'draw4') return card.kind === 'wild4';
+      return false;
+    }
+    if (isWild(card)) return true;
+    if (card.color === activeColor) return true;
+    if (card.kind === 'number' && top.kind === 'number' && card.value === top.value) return true;
+    if (card.kind !== 'number' && card.kind === top.kind) return true;
+    return false;
+  }
+
+  function newGame(opts) {
+    const { humanCount = 1, botCount = 3, mode = 'private', allowStack = true, names = [] } = opts;
+    const total = Math.min(8, humanCount + botCount);
+    const players = [];
+    const avs = shuffle(AVATARS);
+    const botPool = shuffle(BOT_NAMES);
+    let bi = 0;
+    for (let i = 0; i < total; i++) {
+      const human = mode === 'passplay' ? true : (mode === 'spectate' ? false : i === 0);
+      const name = human
+        ? (names[i] || (mode === 'passplay' ? 'Player ' + (i + 1) : 'You'))
+        : botPool[bi++];
+      players.push({ id: 'p' + i, name, isHuman: human, hand: [], avatar: avs[i % avs.length], saidUno: false });
+    }
+    let deck = shuffle(buildDeck());
+    for (const p of players) p.hand = deck.splice(0, 7);
+    let first;
+    do { first = deck.shift(); if (isWild(first)) deck.push(first); } while (isWild(first));
+    const state = {
+      mode, allowStack, players,
+      drawPile: deck, discardPile: [first],
+      activeColor: first.color, current: 0, direction: 1,
+      pending: { draw: 0, type: null }, status: 'playing', winner: null,
+      hasDrawn: false, justDrew: null,
+      log: [{ id: uid(), text: 'Game on! ' + players[0].name + ' starts.' }],
+      flash: null, seq: 0, viewSeat: 0, catchTarget: null,
+    };
+    applyStartEffect(state, first);
+    return state;
+  }
+
+  function applyStartEffect(state, first) {
+    const n = state.players.length;
+    if (first.kind === 'skip') {
+      state.current = (state.current + state.direction + n) % n;
+    } else if (first.kind === 'reverse') {
+      state.direction *= -1;
+      state.current = 0;
+    } else if (first.kind === 'draw2') {
+      state.pending = { draw: 2, type: 'draw2' };
+    }
+  }
+
+  function top(state) { return state.discardPile[state.discardPile.length - 1]; }
+
+  function reshuffleIfNeeded(state) {
+    if (state.drawPile.length === 0 && state.discardPile.length > 1) {
+      const keep = state.discardPile.pop();
+      state.drawPile = shuffle(state.discardPile);
+      state.discardPile = [keep];
+    }
+  }
+
+  function drawN(state, player, n) {
+    for (let i = 0; i < n; i++) {
+      reshuffleIfNeeded(state);
+      if (state.drawPile.length === 0) break;
+      player.hand.push(state.drawPile.shift());
+    }
+    player.saidUno = false;
+  }
+
+  function advance(state, steps) {
+    const n = state.players.length;
+    state.current = ((state.current + state.direction * steps) % n + n) % n;
+  }
+
+  function pushLog(state, text) {
+    state.log.push({ id: uid(), text });
+    if (state.log.length > 40) state.log.shift();
+  }
+
+  function playCard(state, playerIndex, cardId, chosenColor, botForget) {
+    const s = clone(state);
+    s.seq++;
+    const p = s.players[playerIndex];
+    const idx = p.hand.findIndex((c) => c.id === cardId);
+    if (idx < 0) return s;
+    const card = p.hand[idx];
+    if (!canPlay(card, top(s), s.activeColor, s.pending, s.allowStack)) return s;
+    p.hand.splice(idx, 1);
+    s.discardPile.push(card);
+    s.hasDrawn = false; s.justDrew = null;
+    s.flash = { playerId: p.id, type: 'play' };
+    const n = s.players.length;
+    const label = cardLabel(card);
+    if (isWild(card)) {
+      s.activeColor = chosenColor || COLORS[Math.floor(Math.random() * 4)];
+    } else {
+      s.activeColor = card.color;
+    }
+    if (p.hand.length === 1) {
+      if (p.isHuman && s.mode !== 'spectate') {
+        s.catchTarget = p.id; p.saidUno = false;
+        pushLog(s, p.name + ' plays ' + label + '.');
+      } else if (botForget && s.mode !== 'spectate' && Math.random() < 0.4) {
+        p.saidUno = false; s.catchTarget = p.id;
+        pushLog(s, p.name + ' plays ' + label + '…');
+      } else {
+        p.saidUno = true;
+        pushLog(s, p.name + ' plays ' + label + ' — UNO!');
+      }
+    } else {
+      pushLog(s, p.name + ' plays ' + label + '.');
+    }
+    if (p.hand.length === 0) {
+      s.status = 'won'; s.winner = p.id;
+      pushLog(s, '🏆 ' + p.name + ' wins!');
+      return s;
+    }
+    switch (card.kind) {
+      case 'skip':
+        advance(s, 1);
+        pushLog(s, s.players[s.current].name + ' is skipped!');
+        advance(s, 1);
+        break;
+      case 'reverse':
+        s.direction *= -1;
+        if (n === 2) advance(s, 2); else advance(s, 1);
+        break;
+      case 'draw2':
+        s.pending.draw += 2; s.pending.type = 'draw2';
+        advance(s, 1);
+        break;
+      case 'wild4':
+        s.pending.draw += 4; s.pending.type = 'draw4';
+        advance(s, 1);
+        break;
+      default:
+        advance(s, 1);
+    }
+    return s;
+  }
+
+  function drawAction(state, playerIndex) {
+    const s = clone(state);
+    s.seq++;
+    const p = s.players[playerIndex];
+    if (s.pending.draw > 0) {
+      const n = s.pending.draw;
+      drawN(s, p, n);
+      pushLog(s, p.name + ' draws ' + n + ' and loses a turn.');
+      s.pending = { draw: 0, type: null };
+      advance(s, 1);
+      s.hasDrawn = false; s.justDrew = null;
+    } else {
+      drawN(s, p, 1);
+      const drawn = p.hand[p.hand.length - 1];
+      s.justDrew = drawn ? drawn.id : null;
+      s.hasDrawn = true;
+      pushLog(s, p.name + ' draws a card.');
+      if (!drawn || !canPlay(drawn, top(s), s.activeColor, s.pending, s.allowStack)) {
+        advance(s, 1);
+        s.hasDrawn = false; s.justDrew = null;
+      }
+    }
+    return s;
+  }
+
+  function passAfterDraw(state) {
+    const s = clone(state);
+    s.seq++;
+    s.hasDrawn = false; s.justDrew = null;
+    advance(s, 1);
+    return s;
+  }
+
+  function callUno(state, playerIndex) {
+    const s = clone(state);
+    const p = s.players[playerIndex];
+    if (p.hand.length <= 2) {
+      p.saidUno = true;
+      if (s.catchTarget === p.id) s.catchTarget = null;
+      s.flash = { playerId: p.id, type: 'uno' };
+      pushLog(s, p.name + ': UNO!');
+    }
+    return s;
+  }
+
+  function catchPlayer(state, playerId) {
+    const s = clone(state);
+    const p = s.players.find((x) => x.id === playerId);
+    if (!p || p.saidUno || p.hand.length !== 1) { s.catchTarget = null; return s; }
+    drawN(s, p, 2);
+    s.catchTarget = null;
+    s.flash = { playerId: p.id, type: 'caught' };
+    pushLog(s, '👮 ' + p.name + ' forgot to say UNO! +2 cards.');
+    return s;
+  }
+
+  function botDecide(state) {
+    const p = state.players[state.current];
+    const t = top(state);
+    const playable = p.hand.filter((c) => canPlay(c, t, state.activeColor, state.pending, state.allowStack));
+    if (state.pending.draw > 0) {
+      if (playable.length && Math.random() < 0.72) return { type: 'play', card: pickBest(p, playable, state) };
+      return { type: 'draw' };
+    }
+    if (playable.length === 0) return { type: 'draw' };
+    return { type: 'play', card: pickBest(p, playable, state) };
+  }
+
+  function pickBest(p, playable, state) {
+    const counts = { red: 0, yellow: 0, green: 0, blue: 0 };
+    for (const c of p.hand) if (c.color in counts) counts[c.color]++;
+    const bestColor = COLORS.slice().sort((a, b) => counts[b] - counts[a])[0];
+    const nonWild = playable.filter((c) => !isWild(c));
+    const pool = nonWild.length ? nonWild : playable;
+    const scored = pool.slice().sort((a, b) => rank(b) - rank(a));
+    const card = scored[0];
+    return { id: card.id, color: isWild(card) ? bestColor : undefined };
+  }
+
+  function rank(c) {
+    if (c.kind === 'draw2') return 30;
+    if (c.kind === 'skip') return 28;
+    if (c.kind === 'reverse') return 26;
+    if (c.kind === 'number') return 10 + c.value;
+    return 5;
+  }
+
+  function cardLabel(card) {
+    const cl = card.color === 'wild' ? '' : (card.color[0].toUpperCase() + card.color.slice(1) + ' ');
+    if (card.kind === 'number') return cl + card.value;
+    if (card.kind === 'skip') return cl + 'Skip';
+    if (card.kind === 'reverse') return cl + 'Reverse';
+    if (card.kind === 'draw2') return cl + '+2';
+    if (card.kind === 'wild') return 'Wild';
+    if (card.kind === 'wild4') return 'Wild +4';
+    return cl;
+  }
+
+  function clone(s) {
+    return {
+      ...s,
+      players: s.players.map((p) => ({ ...p, hand: p.hand.slice() })),
+      drawPile: s.drawPile.slice(),
+      discardPile: s.discardPile.slice(),
+      pending: { ...s.pending },
+      log: s.log.slice(),
+      flash: s.flash ? { ...s.flash } : null,
+    };
+  }
+
+  window.UnoEngine = {
+    COLORS, HEX, BOT_NAMES, AVATARS,
+    buildDeck, shuffle, canPlay, newGame, top,
+    playCard, drawAction, passAfterDraw, callUno, catchPlayer,
+    botDecide, cardLabel, isWild,
+  };
+})();
+</script>
+
+<!-- ── Tweaks Panel ─────────────────────────────────────────── -->
+<script type="text/babel">
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:bottom right;
+    background:rgba(250,249,247,.78);color:#29261b;
+    -webkit-backdrop-filter:blur(24px) saturate(160%);backdrop-filter:blur(24px) saturate(160%);
+    border:.5px solid rgba(255,255,255,.6);border-radius:14px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 40px rgba(0,0,0,.18);
+    font:11.5px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 8px 10px 14px;cursor:move;user-select:none}
+  .twk-hd b{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .twk-x{appearance:none;border:0;background:transparent;color:rgba(41,38,27,.55);
+    width:22px;height:22px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:rgba(0,0,0,.06);color:#29261b}
+  .twk-body{padding:2px 14px 14px;display:flex;flex-direction:column;gap:10px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.15) transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.25);
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:5px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:rgba(41,38,27,.72)}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:rgba(41,38,27,.5);font-variant-numeric:tabular-nums}
+  .twk-sect{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:rgba(41,38,27,.45);padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:26px;padding:0 8px;
+    border:.5px solid rgba(0,0,0,.1);border-radius:7px;
+    background:rgba(255,255,255,.6);color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:rgba(0,0,0,.25);background:rgba(255,255,255,.85)}
+  select.twk-field{padding-right:22px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(0,0,0,.5)' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 8px center}
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:rgba(0,0,0,.12);outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:14px;height:14px;border-radius:50%;background:#fff;
+    border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;
+    background:#fff;border:.5px solid rgba(0,0,0,.12);box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:default}
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:rgba(0,0,0,.06);user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:rgba(255,255,255,.9);box-shadow:0 1px 2px rgba(0,0,0,.12);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:inherit;font:inherit;font-weight:500;min-height:22px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;overflow-wrap:anywhere}
+  .twk-toggle{position:relative;width:32px;height:18px;border:0;border-radius:999px;
+    background:rgba(0,0,0,.15);transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#34c759}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+  .twk-btn{appearance:none;height:26px;padding:0 12px;border:0;border-radius:7px;
+    background:rgba(0,0,0,.78);color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:rgba(0,0,0,.88)}
+  .twk-btn.secondary{background:rgba(0,0,0,.06);color:inherit}
+  .twk-btn.secondary:hover{background:rgba(0,0,0,.1)}
+`;
+
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxBottom = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxBottom, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.bottom = offsetRef.current.y + 'px';
+  }, []);
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(clampToViewport) : null;
+    if (ro) { ro.observe(document.documentElement); return () => ro.disconnect(); }
+    window.addEventListener('resize', clampToViewport);
+    return () => window.removeEventListener('resize', clampToViewport);
+  }, [open, clampToViewport]);
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === '__activate_edit_mode') setOpen(true);
+      else if (t === '__deactivate_edit_mode') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  const dismiss = () => { setOpen(false); window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*'); };
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startBottom = window.innerHeight - r.bottom;
+    const move = (ev) => {
+      offsetRef.current = { x: startRight - (ev.clientX - sx), y: startBottom - (ev.clientY - sy) };
+      clampToViewport();
+    };
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" style={{ right: offsetRef.current.x, bottom: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" onMouseDown={(e) => e.stopPropagation()} onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">{children}</div>
+      </div>
+    </>
+  );
+}
+
+function TweakSection({ label, children }) {
+  return (<><div className="twk-sect">{label}</div>{children}</>);
+}
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value} onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'} onClick={onClick}>{label}</button>
+  );
+}
+
+Object.assign(window, { useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider, TweakToggle, TweakSelect, TweakButton });
+</script>
+
+<!-- ── iOS Device Frame ────────────────────────────────────── -->
+<script type="text/babel">
+function IOSStatusBar({ dark = false, time = '9:41' }) {
+  const c = dark ? '#fff' : '#000';
+  return (
+    <div style={{ display: 'flex', gap: 154, alignItems: 'center', justifyContent: 'center',
+      padding: '21px 24px 19px', boxSizing: 'border-box', position: 'relative', zIndex: 20, width: '100%' }}>
+      <div style={{ flex: 1, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 1.5 }}>
+        <span style={{ fontFamily: '-apple-system, "SF Pro", system-ui', fontWeight: 590, fontSize: 17, lineHeight: '22px', color: c }}>{time}</span>
+      </div>
+      <div style={{ flex: 1, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, paddingTop: 1, paddingRight: 1 }}>
+        <svg width="19" height="12" viewBox="0 0 19 12">
+          <rect x="0" y="7.5" width="3.2" height="4.5" rx="0.7" fill={c}/>
+          <rect x="4.8" y="5" width="3.2" height="7" rx="0.7" fill={c}/>
+          <rect x="9.6" y="2.5" width="3.2" height="9.5" rx="0.7" fill={c}/>
+          <rect x="14.4" y="0" width="3.2" height="12" rx="0.7" fill={c}/>
+        </svg>
+        <svg width="17" height="12" viewBox="0 0 17 12">
+          <path d="M8.5 3.2C10.8 3.2 12.9 4.1 14.4 5.6L15.5 4.5C13.7 2.7 11.2 1.5 8.5 1.5C5.8 1.5 3.3 2.7 1.5 4.5L2.6 5.6C4.1 4.1 6.2 3.2 8.5 3.2Z" fill={c}/>
+          <path d="M8.5 6.8C9.9 6.8 11.1 7.3 12 8.2L13.1 7.1C11.8 5.9 10.2 5.1 8.5 5.1C6.8 5.1 5.2 5.9 3.9 7.1L5 8.2C5.9 7.3 7.1 6.8 8.5 6.8Z" fill={c}/>
+          <circle cx="8.5" cy="10.5" r="1.5" fill={c}/>
+        </svg>
+        <svg width="27" height="13" viewBox="0 0 27 13">
+          <rect x="0.5" y="0.5" width="23" height="12" rx="3.5" stroke={c} strokeOpacity="0.35" fill="none"/>
+          <rect x="2" y="2" width="20" height="9" rx="2" fill={c}/>
+          <path d="M25 4.5V8.5C25.8 8.2 26.5 7.2 26.5 6.5C26.5 5.8 25.8 4.8 25 4.5Z" fill={c} fillOpacity="0.4"/>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function IOSDevice({ children, width = 402, height = 874, dark = false }) {
+  return (
+    <div style={{ width, height, borderRadius: 48, overflow: 'hidden', position: 'relative',
+      background: dark ? '#000' : '#F2F2F7',
+      boxShadow: '0 40px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.12)',
+      fontFamily: '-apple-system, system-ui, sans-serif', WebkitFontSmoothing: 'antialiased' }}>
+      <div style={{ position: 'absolute', top: 11, left: '50%', transform: 'translateX(-50%)',
+        width: 126, height: 37, borderRadius: 24, background: '#000', zIndex: 50 }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}>
+        <IOSStatusBar dark={dark} />
+      </div>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflow: 'auto' }}>{children}</div>
+      </div>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 60,
+        height: 34, display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+        paddingBottom: 8, pointerEvents: 'none' }}>
+        <div style={{ width: 139, height: 5, borderRadius: 100,
+          background: dark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.25)' }} />
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { IOSDevice, IOSStatusBar });
+</script>
+
+<!-- ── Chrome Browser Frame ────────────────────────────────── -->
+<script type="text/babel">
+const CHROME_C = { barBg: '#202124', tabBg: '#35363a', text: '#e8eaed', dim: '#9aa0a6', urlBg: '#282a2d' };
+
+function ChromeTrafficLights() {
+  return (
+    <div style={{ display: 'flex', gap: 8, padding: '0 14px' }}>
+      <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57' }} />
+      <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }} />
+      <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }} />
+    </div>
+  );
+}
+
+function ChromeTab({ title = 'New Tab', active = false }) {
+  const curve = (flip) => (
+    <svg width="8" height="10" viewBox="0 0 8 10"
+      style={{ position: 'absolute', bottom: 0, [flip ? 'right' : 'left']: -8, transform: flip ? 'scaleX(-1)' : 'none' }}>
+      <path d="M0 10C2 9 6 8 8 0V10H0Z" fill={CHROME_C.tabBg}/>
+    </svg>
+  );
+  return (
+    <div style={{ position: 'relative', height: 34, alignSelf: 'flex-end',
+      padding: '0 12px', display: 'flex', alignItems: 'center', gap: 8,
+      background: active ? CHROME_C.tabBg : 'transparent',
+      borderRadius: '8px 8px 0 0', minWidth: 120, maxWidth: 220,
+      fontFamily: 'system-ui, sans-serif', fontSize: 12,
+      color: active ? CHROME_C.text : CHROME_C.dim }}>
+      {active && curve(false)}{active && curve(true)}
+      <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#5f6368', flexShrink: 0 }} />
+      <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+    </div>
+  );
+}
+
+function ChromeWindow({ tabs = [{ title: 'New Tab' }], activeIndex = 0, url = 'example.com', width = 900, height = 600, children }) {
+  return (
+    <div style={{ width, height, borderRadius: 10, overflow: 'hidden',
+      boxShadow: '0 24px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.1)',
+      display: 'flex', flexDirection: 'column', background: CHROME_C.tabBg }}>
+      <div style={{ display: 'flex', alignItems: 'center', height: 44, background: CHROME_C.barBg, paddingRight: 8 }}>
+        <ChromeTrafficLights />
+        <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', paddingLeft: 4, flex: 1 }}>
+          {tabs.map((t, i) => <ChromeTab key={i} title={t.title} active={i === activeIndex} />)}
+        </div>
+      </div>
+      <div style={{ height: 40, background: CHROME_C.tabBg, display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px' }}>
+        <div style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 16, height: 16, borderRadius: '50%', background: CHROME_C.dim, opacity: 0.4 }} />
+        </div>
+        <div style={{ flex: 1, height: 30, borderRadius: 15, background: CHROME_C.urlBg,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', margin: '0 6px' }}>
+          <div style={{ width: 12, height: 12, borderRadius: '50%', background: CHROME_C.dim, opacity: 0.4 }} />
+          <span style={{ flex: 1, color: CHROME_C.text, fontSize: 13, fontFamily: 'system-ui, sans-serif' }}>{url}</span>
+        </div>
+        <div style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 16, height: 16, borderRadius: '50%', background: CHROME_C.dim, opacity: 0.4 }} />
+        </div>
+      </div>
+      <div style={{ flex: 1, background: '#fff', overflow: 'auto' }}>{children}</div>
+    </div>
+  );
+}
+
+Object.assign(window, { ChromeWindow, ChromeTab, ChromeTrafficLights });
+</script>
+
+<!-- ── Card Components ─────────────────────────────────────── -->
+<script type="text/babel">
+const UNO_HEX = window.UnoEngine.HEX;
+
+function Symbol({ kind, value, size, color, stroke }) {
+  const s = size;
+  const sw = Math.max(1.2, s * 0.13);
+  if (kind === 'number') {
+    return (
+      <span style={{ fontFamily: "'Fredoka', system-ui, sans-serif", fontWeight: 700,
+        fontSize: s, lineHeight: 1, color,
+        WebkitTextStroke: stroke ? `${sw}px ${stroke}` : undefined, paintOrder: 'stroke fill' }}>{value}</span>
+    );
+  }
+  if (kind === 'skip') {
+    return (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="3.4" />
+        <line x1="5.5" y1="5.5" x2="18.5" y2="18.5" stroke={color} strokeWidth="3.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (kind === 'reverse') {
+    return (
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+        <path d="M7 8.5 4 11.5 7 14.5" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4.6 11.5H14a4 4 0 0 1 4 4v.4" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M17 15.5 20 12.5 17 9.5" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M19.4 12.5H10a4 4 0 0 1-4-4v-.4" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (kind === 'draw2' || kind === 'draw4') {
+    const n = kind === 'draw2' ? '+2' : '+4';
+    return (
+      <span style={{ fontFamily: "'Fredoka', system-ui, sans-serif", fontWeight: 700,
+        fontSize: s * 0.82, lineHeight: 1, color,
+        WebkitTextStroke: stroke ? `${Math.max(0.8, s * 0.07)}px ${stroke}` : undefined,
+        paintOrder: 'stroke fill', letterSpacing: '-0.04em' }}>{n}</span>
+    );
+  }
+  return null;
+}
+
+function CenterArt({ card, w }) {
+  const { kind, value, color } = card;
+  if (kind === 'wild' || kind === 'wild4') {
+    return (
+      <div style={{ position: 'relative', width: w * 0.62, height: w * 0.92, display: 'grid', placeItems: 'center' }}>
+        <div style={{ width: w * 0.46, height: w * 0.46, borderRadius: '50%', overflow: 'hidden',
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr',
+          boxShadow: 'inset 0 0 0 ' + (w * 0.02) + 'px rgba(0,0,0,0.12)' }}>
+          <div style={{ background: UNO_HEX.red }} />
+          <div style={{ background: UNO_HEX.blue }} />
+          <div style={{ background: UNO_HEX.green }} />
+          <div style={{ background: UNO_HEX.yellow }} />
+        </div>
+        {kind === 'wild4' && (
+          <span style={{ position: 'absolute', fontFamily: "'Fredoka', sans-serif", fontWeight: 700,
+            fontSize: w * 0.3, color: '#fff', WebkitTextStroke: `${w * 0.03}px #17171F`,
+            paintOrder: 'stroke fill' }}>+4</span>
+        )}
+      </div>
+    );
+  }
+  return <Symbol kind={kind} value={value} size={w * 0.62} color={UNO_HEX[color]} stroke="#17171F" />;
+}
+
+function Card({ card, w = 92, faceDown = false, onClick, playable = false, dim = false, raised = false, style = {}, className = '' }) {
+  const h = w * 1.5;
+  if (!card && !faceDown) return null;
+  if (faceDown || !card) return <CardBack w={w} style={style} onClick={onClick} className={className} />;
+  const bg = card.color === 'wild' ? UNO_HEX.wild : UNO_HEX[card.color];
+  const cornerColor = '#fff';
+  const cornerStroke = card.color === 'wild' ? '#000' : 'rgba(0,0,0,0.0)';
+  return (
+    <div onClick={onClick} className={className} style={{
+      width: w, height: h, borderRadius: w * 0.13, position: 'relative',
+      background: bg, flex: '0 0 auto', cursor: onClick ? 'pointer' : 'default',
+      boxShadow: raised
+        ? `0 ${w * 0.18}px ${w * 0.34}px rgba(0,0,0,0.45), 0 0 0 ${w * 0.04}px rgba(255,255,255,0.9) inset`
+        : `0 ${w * 0.05}px ${w * 0.12}px rgba(0,0,0,0.32), 0 0 0 ${w * 0.04}px rgba(255,255,255,0.9) inset`,
+      opacity: dim ? 0.46 : 1, filter: dim ? 'saturate(0.7)' : 'none',
+      transition: 'transform .16s ease, box-shadow .16s ease, opacity .16s',
+      outline: playable ? `${Math.max(2, w * 0.035)}px solid #fff` : 'none',
+      outlineOffset: playable ? w * 0.03 : 0, ...style }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', overflow: 'hidden', borderRadius: w * 0.13 }}>
+        <div style={{ width: w * 0.74, height: h * 0.82, background: '#fff',
+          borderRadius: '50%', transform: 'rotate(-32deg)', boxShadow: '0 0 0 1px rgba(0,0,0,0.04)' }} />
+      </div>
+      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+        <CenterArt card={card} w={w} />
+      </div>
+      <div style={{ position: 'absolute', top: w * 0.07, left: w * 0.1, lineHeight: 1, pointerEvents: 'none' }}>
+        <Symbol kind={card.kind} value={card.value} size={w * 0.26} color={cornerColor} stroke={cornerStroke} />
+      </div>
+      <div style={{ position: 'absolute', bottom: w * 0.07, right: w * 0.1, transform: 'rotate(180deg)', lineHeight: 1, pointerEvents: 'none' }}>
+        <Symbol kind={card.kind} value={card.value} size={w * 0.26} color={cornerColor} stroke={cornerStroke} />
+      </div>
+    </div>
+  );
+}
+
+function CardBack({ w = 92, style = {}, onClick, className = '' }) {
+  const h = w * 1.5;
+  return (
+    <div onClick={onClick} className={className} style={{
+      width: w, height: h, borderRadius: w * 0.13, position: 'relative', overflow: 'hidden',
+      background: UNO_HEX.wild, flex: '0 0 auto', cursor: onClick ? 'pointer' : 'default',
+      boxShadow: `0 ${w * 0.05}px ${w * 0.12}px rgba(0,0,0,0.32), 0 0 0 ${w * 0.04}px rgba(255,255,255,0.9) inset`,
+      ...style }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+        <div style={{ width: w * 0.74, height: h * 0.82, background: UNO_HEX.red,
+          borderRadius: '50%', transform: 'rotate(-32deg)',
+          boxShadow: 'inset 0 0 0 ' + (w * 0.03) + 'px rgba(255,255,255,0.92)' }} />
+      </div>
+      <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+        <span style={{ fontFamily: "'Fredoka', sans-serif", fontWeight: 700, fontStyle: 'italic',
+          fontSize: w * 0.34, color: '#fff', letterSpacing: '-0.04em',
+          transform: 'rotate(-12deg)', textShadow: '0 2px 0 rgba(0,0,0,0.25)' }}>UNO</span>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Card, CardBack });
+</script>
+
+<!-- ── Overlays ────────────────────────────────────────────── -->
+<script type="text/babel">
+const OV_HEX = window.UnoEngine.HEX;
+
+function Backdrop({ children, blur = true, style = {} }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 200,
+      background: 'rgba(8,8,14,0.72)',
+      backdropFilter: blur ? 'blur(6px)' : 'none', WebkitBackdropFilter: blur ? 'blur(6px)' : 'none',
+      display: 'grid', placeItems: 'center', padding: 22, boxSizing: 'border-box',
+      animation: 'ovFade .22s ease', ...style }}>{children}</div>
+  );
+}
+
+function WildPicker({ onPick, onCancel, plusFour }) {
+  const cells = [
+    { c: 'red', label: 'Red' }, { c: 'blue', label: 'Blue' },
+    { c: 'green', label: 'Green' }, { c: 'yellow', label: 'Yellow' },
+  ];
+  return (
+    <Backdrop>
+      <div style={{ width: '100%', maxWidth: 320, textAlign: 'center' }}>
+        <div style={{ fontFamily: "'Fredoka', sans-serif", fontWeight: 600, color: '#fff', fontSize: 24, marginBottom: 4 }}>Choose a colour</div>
+        <div style={{ color: 'rgba(255,255,255,0.6)', fontFamily: "'Nunito', sans-serif", fontSize: 14, marginBottom: 18 }}>
+          {plusFour ? 'Next player draws four.' : 'Play continues in this colour.'}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {cells.map(({ c, label }) => (
+            <button key={c} onClick={() => onPick(c)} style={{
+              border: 'none', borderRadius: 22, height: 92, cursor: 'pointer',
+              background: OV_HEX[c], color: '#fff', position: 'relative', overflow: 'hidden',
+              boxShadow: '0 8px 20px rgba(0,0,0,0.4), 0 0 0 4px rgba(255,255,255,0.92) inset',
+              fontFamily: "'Fredoka', sans-serif", fontWeight: 600, fontSize: 20, transition: 'transform .12s' }}
+              onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+              onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+            >{label}</button>
+          ))}
+        </div>
+        {onCancel && (
+          <button onClick={onCancel} style={{ marginTop: 16, background: 'transparent', border: 'none',
+            color: 'rgba(255,255,255,0.55)', fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Cancel</button>
+        )}
+      </div>
+    </Backdrop>
+  );
+}
+
+function Confetti() {
+  const bits = React.useMemo(() => Array.from({ length: 36 }, (_, i) => ({
+    left: Math.random() * 100, delay: Math.random() * 0.6, dur: 1.6 + Math.random() * 1.4,
+    c: [OV_HEX.red, OV_HEX.yellow, OV_HEX.green, OV_HEX.blue, '#fff'][i % 5],
+    rot: Math.random() * 360, size: 7 + Math.random() * 7,
+  })), []);
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: -1 }}>
+      {bits.map((b, i) => (
+        <div key={i} style={{ position: 'absolute', top: -20, left: b.left + '%', width: b.size, height: b.size * 1.4,
+          background: b.c, borderRadius: 2, transform: `rotate(${b.rot}deg)`,
+          animation: `confFall ${b.dur}s ${b.delay}s ease-in infinite` }} />
+      ))}
+    </div>
+  );
+}
+
+const primaryBtn = {
+  display: 'block', width: '100%', border: 'none', borderRadius: 16, cursor: 'pointer',
+  padding: '16px 18px', marginBottom: 10,
+  background: 'linear-gradient(180deg,#FFD166,#F4A100)', color: '#3a2600',
+  fontFamily: "'Fredoka', sans-serif", fontWeight: 600, fontSize: 18,
+  boxShadow: '0 8px 22px rgba(244,161,0,0.4)',
+};
+const ghostBtn = {
+  display: 'block', width: '100%', border: 'none', borderRadius: 16, cursor: 'pointer',
+  padding: '13px 18px', background: 'rgba(255,255,255,0.08)', color: '#fff',
+  fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 15,
+};
+
+function WinOverlay({ winner, players, onPlayAgain, onExit, confetti = true }) {
+  const ranked = players.slice().sort((a, b) => a.hand.length - b.hand.length);
+  return (
+    <Backdrop>
+      <div style={{ width: '100%', maxWidth: 340, textAlign: 'center' }}>
+        {confetti && <Confetti />}
+        <div style={{ fontSize: 64, marginBottom: 4 }}>{winner.avatar.glyph}</div>
+        <div style={{ fontFamily: "'Fredoka', sans-serif", fontWeight: 700, color: '#FFD166', fontSize: 16, letterSpacing: 2 }}>WINNER</div>
+        <div style={{ fontFamily: "'Fredoka', sans-serif", fontWeight: 700, color: '#fff', fontSize: 34, marginBottom: 18 }}>{winner.name}</div>
+        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 18, padding: '8px 14px', textAlign: 'left', marginBottom: 20 }}>
+          {ranked.map((p, i) => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px',
+              borderBottom: i < ranked.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+              fontFamily: "'Nunito', sans-serif" }}>
+              <span style={{ width: 18, color: 'rgba(255,255,255,0.5)', fontWeight: 800, fontSize: 14 }}>{i + 1}</span>
+              <span style={{ width: 28, height: 28, borderRadius: '50%', background: p.avatar.bg,
+                display: 'grid', placeItems: 'center', fontSize: 15 }}>{p.avatar.glyph}</span>
+              <span style={{ flex: 1, color: '#fff', fontWeight: 700, fontSize: 15 }}>{p.name}</span>
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 700 }}>
+                {p.hand.length === 0 ? '🏆' : p.hand.length + ' left'}
+              </span>
+            </div>
+          ))}
+        </div>
+        <button onClick={onPlayAgain} style={primaryBtn}>Play again</button>
+        <button onClick={onExit} style={ghostBtn}>Back to lobby</button>
+      </div>
+    </Backdrop>
+  );
+}
+
+function PassScreen({ player, onReady }) {
+  return (
+    <Backdrop blur={false} style={{ background: 'linear-gradient(160deg,#1b1530,#0d0a18)' }}>
+      <div style={{ textAlign: 'center', width: '100%', maxWidth: 320 }}>
+        <div style={{ color: 'rgba(255,255,255,0.5)', fontFamily: "'Nunito', sans-serif", fontWeight: 800, letterSpacing: 2, fontSize: 13 }}>PASS THE DEVICE TO</div>
+        <div style={{ fontSize: 76, margin: '14px 0 2px' }}>{player.avatar.glyph}</div>
+        <div style={{ fontFamily: "'Fredoka', sans-serif", fontWeight: 700, color: '#fff', fontSize: 36, marginBottom: 6 }}>{player.name}</div>
+        <div style={{ color: 'rgba(255,255,255,0.55)', fontFamily: "'Nunito', sans-serif", fontSize: 14, marginBottom: 30 }}>
+          Make sure no one else can see your hand.
+        </div>
+        <button onClick={onReady} style={primaryBtn}>I'm {player.name} — show my hand</button>
+      </div>
+    </Backdrop>
+  );
+}
+
+function UnoCallOverlay({ name, onCall, remaining }) {
+  return (
+    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 150, zIndex: 210,
+      display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+      <button onClick={onCall} style={{ pointerEvents: 'auto', border: 'none', cursor: 'pointer',
+        width: 132, height: 132, borderRadius: '50%',
+        background: 'radial-gradient(circle at 38% 32%, #FF5A5A, #E4002B)',
+        color: '#fff', fontFamily: "'Fredoka', sans-serif", fontWeight: 700,
+        fontSize: 34, fontStyle: 'italic', letterSpacing: '-0.03em',
+        boxShadow: '0 0 0 6px rgba(255,255,255,0.95) inset, 0 14px 34px rgba(228,0,43,0.6)',
+        animation: 'unoPulse 0.7s ease-in-out infinite' }}>
+        UNO!
+        <div style={{ fontSize: 12, fontStyle: 'normal', fontWeight: 800, opacity: 0.85, marginTop: -2 }}>tap to call</div>
+      </button>
+      <div style={{ marginTop: 12, height: 6, width: 132, borderRadius: 6, background: 'rgba(255,255,255,0.18)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: (remaining * 100) + '%', background: '#FFD166', transition: 'width .1s linear' }} />
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { WildPicker, WinOverlay, PassScreen, UnoCallOverlay, Confetti, ovPrimaryBtn: primaryBtn, ovGhostBtn: ghostBtn });
+</script>
+
+<!-- ── Game Table ──────────────────────────────────────────── -->
+<script type="text/babel">
+const TBL = window.UnoEngine;
+
+function colorGlow(color) {
+  return ({ red: '#E4002B', yellow: '#FFC400', green: '#1FA84C', blue: '#0095DA', wild: '#9b8cff' }[color]) || '#9b8cff';
+}
+
+function OpponentPod({ player, active, color, big }) {
+  const count = player.hand.length;
+  const glow = colorGlow(color);
+  const fan = Math.min(count, 5);
+  const av = big ? 62 : 46;
+  const fanW = big ? 17 : 13, fanH = big ? 26 : 20;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: big ? 5 : 3,
+      width: big ? 100 : 70, transition: 'transform .2s', transform: active ? 'scale(1.06)' : 'scale(1)' }}>
+      <div style={{ position: 'relative' }}>
+        <div style={{ width: av, height: av, borderRadius: '50%', background: player.avatar.bg,
+          display: 'grid', placeItems: 'center', fontSize: big ? 32 : 24,
+          boxShadow: active ? `0 0 0 3px ${glow}, 0 0 20px ${glow}` : '0 2px 6px rgba(0,0,0,0.4)',
+          transition: 'box-shadow .2s' }}>{player.avatar.glyph}</div>
+        <div style={{ position: 'absolute', bottom: -4, right: big ? -10 : -8, minWidth: big ? 24 : 20, height: big ? 24 : 20,
+          padding: '0 5px', borderRadius: 12, background: '#17171F', color: '#fff', boxSizing: 'border-box',
+          fontFamily: "'Fredoka', sans-serif", fontWeight: 600, fontSize: big ? 14 : 12,
+          display: 'grid', placeItems: 'center', boxShadow: '0 0 0 2px rgba(255,255,255,0.85)' }}>{count}</div>
+        {count === 1 && player.saidUno && (
+          <div style={{ position: 'absolute', top: big ? -13 : -10, left: '50%', transform: 'translateX(-50%) rotate(-8deg)',
+            background: '#E4002B', color: '#fff', fontFamily: "'Fredoka',sans-serif", fontWeight: 700,
+            fontStyle: 'italic', fontSize: big ? 12 : 10, padding: '1px 7px', borderRadius: 6,
+            boxShadow: '0 0 0 1.5px #fff', letterSpacing: '-0.02em' }}>UNO</div>
+        )}
+      </div>
+      <div style={{ display: 'flex', height: fanH + 2, alignItems: 'center', justifyContent: 'center' }}>
+        {Array.from({ length: fan }).map((_, i) => (
+          <div key={i} style={{ width: fanW, height: fanH, borderRadius: 3, background: '#17171F',
+            marginLeft: i ? -(fanW * 0.55) : 0, boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,0.85)',
+            transform: `rotate(${(i - (fan - 1) / 2) * 10}deg)` }} />
+        ))}
+      </div>
+      <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: big ? 13 : 11,
+        color: active ? '#fff' : 'rgba(255,255,255,0.62)', maxWidth: big ? 100 : 70,
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{player.name}</div>
+    </div>
+  );
+}
+
+function CenterPiles({ state, onDraw, canDraw, big }) {
+  const t = TBL.top(state);
+  const glow = colorGlow(state.activeColor);
+  const pending = state.pending;
+  const dirIcon = state.direction === 1 ? '↻' : '↺';
+  const drawW = big ? 90 : 66, discW = big ? 108 : 78;
+  const halo = big ? 320 : 230, ring = big ? 286 : 196;
+  return (
+    <div style={{ position: 'relative', display: 'grid', placeItems: 'center', flex: 1, minHeight: 0 }}>
+      <div style={{ position: 'absolute', width: halo, height: halo, borderRadius: '50%',
+        background: `radial-gradient(circle, ${glow}44, transparent 68%)`, filter: 'blur(2px)', transition: 'background .35s' }} />
+      <div style={{ position: 'absolute', width: ring, height: ring, borderRadius: '50%', border: `2px dashed ${glow}55` }} />
+      <div style={{ position: 'absolute', width: ring, height: ring, pointerEvents: 'none' }}>
+        <span style={{ position: 'absolute', top: -16, left: '50%', transform: 'translateX(-50%)', color: glow, fontSize: big ? 32 : 26, fontWeight: 700 }}>{dirIcon}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: big ? 42 : 26, position: 'relative' }}>
+        <div style={{ position: 'relative', textAlign: 'center' }}>
+          <div style={{ position: 'relative', width: drawW + 4, height: drawW * 1.5 + 5 }}>
+            <CardBack w={drawW} style={{ position: 'absolute', top: 4, left: 6, opacity: 0.5 }} />
+            <CardBack w={drawW} style={{ position: 'absolute', top: 2, left: 3, opacity: 0.75 }} />
+            <CardBack w={drawW} onClick={canDraw ? onDraw : undefined} style={{
+              position: 'absolute', top: 0, left: 0, cursor: canDraw ? 'pointer' : 'default',
+              outline: canDraw ? '3px solid rgba(255,209,102,0.9)' : 'none', outlineOffset: 2,
+              animation: canDraw ? 'drawHint 1.4s ease-in-out infinite' : 'none' }} />
+          </div>
+          <div style={{ marginTop: 8, fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: big ? 13 : 11, color: 'rgba(255,255,255,0.5)' }}>
+            DRAW · {state.drawPile.length}
+          </div>
+        </div>
+        <div style={{ position: 'relative', width: discW + 6, height: discW * 1.5 + 6 }}>
+          {state.discardPile.slice(-3, -1).map((c, i) => (
+            <Card key={c.id} card={c} w={discW} style={{ position: 'absolute', top: 0, left: 0,
+              transform: `rotate(${(i - 1) * 8}deg) translate(${(i - 1) * 4}px,0)`, opacity: 0.9 }} />
+          ))}
+          <Card key={t.id} card={t} w={discW} style={{ position: 'absolute', top: 0, left: 3,
+            transform: 'rotate(4deg)', animation: 'playLand .28s cubic-bezier(.2,1.3,.5,1)' }} />
+        </div>
+      </div>
+      {pending.draw > 0 && (
+        <div style={{ position: 'absolute', bottom: big ? 0 : 6, background: '#E4002B', color: '#fff',
+          fontFamily: "'Fredoka',sans-serif", fontWeight: 600, fontSize: big ? 17 : 15,
+          padding: '6px 16px', borderRadius: 20, boxShadow: '0 0 0 3px rgba(255,255,255,0.92), 0 6px 16px rgba(228,0,43,0.5)',
+          animation: 'pendPulse 1s ease-in-out infinite' }}>
+          ⚠ Stack or draw +{pending.draw}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HandRow({ player, cardPlayable, onCardTap, disabled, big }) {
+  const hand = player.hand;
+  const n = hand.length;
+  const w = big ? (n > 11 ? 78 : n > 8 ? 90 : 104) : (n > 9 ? 60 : n > 7 ? 66 : 74);
+  const overlap = big ? (n > 11 ? -24 : -10) : (n > 9 ? -22 : n > 7 ? -16 : -8);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
+      overflowX: 'auto', overflowY: 'visible',
+      padding: big ? '30px 24px 24px' : '26px 16px 34px', gap: 0, minHeight: w * 1.5 + 30,
+      WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+      {hand.map((c, i) => {
+        const playable = !disabled && cardPlayable(c);
+        return (
+          <Card key={c.id} card={c} w={w}
+            onClick={playable ? () => onCardTap(c) : undefined}
+            playable={playable} dim={!disabled && !playable}
+            style={{ marginLeft: i ? overlap : 0,
+              transform: playable ? `translateY(${big ? -20 : -14}px)` : 'translateY(0)',
+              zIndex: playable ? 10 + i : i }} />
+        );
+      })}
+    </div>
+  );
+}
+
+function actionBtn(c, big) {
+  return {
+    border: 'none', cursor: 'pointer', padding: big ? '11px 22px' : '9px 16px', borderRadius: 14,
+    fontFamily: "'Fredoka',sans-serif", fontWeight: 600, fontSize: big ? 17 : 15, color: '#fff',
+    background: c, boxShadow: '0 0 0 3px rgba(255,255,255,0.85) inset, 0 5px 14px rgba(0,0,0,0.35)',
+  };
+}
+
+function Table({ state, view, isMyTurn, spectating, onCardTap, onDraw, onPass, onCallUno, unoWindow, onCatch, onExit, tweaks, layout }) {
+  const big = layout === 'desktop';
+  const me = state.players[view];
+  const t = TBL.top(state);
+  const opponents = state.players.filter((_, i) => i !== view);
+  const cardPlayable = (c) => {
+    if (!isMyTurn) return false;
+    if (state.hasDrawn && state.justDrew) {
+      return c.id === state.justDrew && TBL.canPlay(c, t, state.activeColor, state.pending, state.allowStack);
+    }
+    return TBL.canPlay(c, t, state.activeColor, state.pending, state.allowStack);
+  };
+  const anyPlayable = isMyTurn && me.hand.some(cardPlayable);
+  const canDraw = isMyTurn && !state.hasDrawn && !spectating;
+  const showPass = isMyTurn && state.hasDrawn && !spectating;
+  const curName = state.players[state.current].name;
+  const catchable = state.catchTarget && state.players.find(p => p.id === state.catchTarget && p.id !== me.id);
+  return (
+    <div style={{ position: 'absolute', inset: 0,
+      background: tweaks.tableBg || 'radial-gradient(120% 80% at 50% 18%, #2a2150 0%, #1a1430 45%, #0d0a18 100%)',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: big ? '18px 30px 8px' : '52px 16px 4px', position: 'relative', zIndex: 5 }}>
+        <button onClick={onExit} style={{ width: big ? 40 : 34, height: big ? 40 : 34, borderRadius: 12, border: 'none', cursor: 'pointer',
+          background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: big ? 22 : 18, lineHeight: 1 }}>‹</button>
+        <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: big ? 14 : 12, letterSpacing: 1,
+          color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>
+          {spectating ? '👁 Spectating' : (isMyTurn ? 'Your turn' : curName + "'s turn")}
+        </div>
+        <div style={{ minWidth: big ? 40 : 34, height: big ? 40 : 34, borderRadius: 12, padding: '0 11px', boxSizing: 'border-box',
+          background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', gap: 5,
+          fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: big ? 14 : 13 }}>
+          <span>🃏</span>{state.players.length}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: big ? '16px 14px' : '10px 6px',
+        padding: big ? '14px 24px 4px' : '8px 10px 2px', position: 'relative', zIndex: 4 }}>
+        {opponents.map((p) => {
+          const idx = state.players.indexOf(p);
+          return (
+            <div key={p.id} style={{ position: 'relative' }}>
+              <OpponentPod player={p} active={idx === state.current} color={state.activeColor} big={big} />
+              {catchable && catchable.id === p.id && (
+                <button onClick={() => onCatch(p.id)} style={{
+                  position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)',
+                  background: '#FFD166', color: '#3a2600', border: 'none', cursor: 'pointer',
+                  fontFamily: "'Fredoka',sans-serif", fontWeight: 600, fontSize: big ? 12 : 11, padding: '3px 9px',
+                  borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.4)', whiteSpace: 'nowrap', zIndex: 30,
+                  animation: 'unoPulse .7s ease-in-out infinite' }}>Catch!</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <CenterPiles state={state} onDraw={onDraw} canDraw={canDraw} big={big} />
+      <div style={{ position: 'relative', zIndex: 6, maxWidth: big ? 980 : 'none', width: '100%', margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: big ? '0 30px' : '0 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, opacity: isMyTurn ? 1 : 0.7 }}>
+            <div style={{ width: big ? 42 : 34, height: big ? 42 : 34, borderRadius: '50%', background: me.avatar.bg,
+              display: 'grid', placeItems: 'center', fontSize: big ? 22 : 18,
+              boxShadow: isMyTurn ? `0 0 0 2.5px ${colorGlow(state.activeColor)}` : 'none' }}>{me.avatar.glyph}</div>
+            <div>
+              <div style={{ fontFamily: "'Fredoka',sans-serif", fontWeight: 600, color: '#fff', fontSize: big ? 17 : 15, lineHeight: 1.1 }}>
+                {spectating ? 'Watching ' + me.name : me.name}
+              </div>
+              <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 700, color: 'rgba(255,255,255,0.5)', fontSize: big ? 12 : 11 }}>
+                {me.hand.length} cards
+              </div>
+            </div>
+          </div>
+          {!spectating && (
+            <button onClick={onCallUno} disabled={me.hand.length > 2} style={{
+              border: 'none', cursor: me.hand.length > 2 ? 'default' : 'pointer',
+              padding: big ? '11px 24px' : '9px 18px', borderRadius: 14,
+              fontFamily: "'Fredoka',sans-serif", fontWeight: 700, fontStyle: 'italic', fontSize: big ? 19 : 17, letterSpacing: '-0.03em',
+              background: me.hand.length <= 2 ? 'linear-gradient(180deg,#FF5A5A,#E4002B)' : 'rgba(255,255,255,0.08)',
+              color: me.hand.length <= 2 ? '#fff' : 'rgba(255,255,255,0.3)',
+              boxShadow: me.hand.length <= 2 ? '0 0 0 3px rgba(255,255,255,0.9) inset, 0 6px 16px rgba(228,0,43,0.45)' : 'none',
+              animation: (me.hand.length === 1 && !me.saidUno) ? 'unoPulse .7s ease-in-out infinite' : 'none' }}>UNO!</button>
+          )}
+          {showPass ? (
+            <button onClick={onPass} style={actionBtn('#0095DA', big)}>Pass</button>
+          ) : (
+            <button onClick={canDraw ? onDraw : undefined} disabled={!canDraw} style={{
+              ...actionBtn('#1FA84C', big), opacity: canDraw ? 1 : 0.35, cursor: canDraw ? 'pointer' : 'default' }}>Draw</button>
+          )}
+        </div>
+        {isMyTurn && !spectating && !anyPlayable && !state.hasDrawn && (
+          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontFamily: "'Nunito',sans-serif", fontSize: 12, fontWeight: 700, marginTop: 6 }}>
+            No playable card — tap the deck to draw
+          </div>
+        )}
+        <HandRow player={me} cardPlayable={cardPlayable} onCardTap={onCardTap} disabled={spectating || !isMyTurn} big={big} />
+      </div>
+      {unoWindow && <UnoCallOverlay name={me.name} onCall={onCallUno} remaining={unoWindow.remaining} />}
+    </div>
+  );
+}
+
+Object.assign(window, { Table, OpponentPod, CenterPiles, HandRow });
+</script>
+
+<!-- ── Lobby ───────────────────────────────────────────────── -->
+<script type="text/babel">
+function genCode() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 5 }, () => a[Math.floor(Math.random() * a.length)]).join('');
+}
+
+function ModeCard({ icon, title, desc, active, onClick, accent }) {
+  return (
+    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%', textAlign: 'left',
+      padding: 14, borderRadius: 18, cursor: 'pointer', marginBottom: 10,
+      border: active ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.1)',
+      background: active ? `${accent}22` : 'rgba(255,255,255,0.04)', transition: 'all .15s' }}>
+      <div style={{ width: 46, height: 46, borderRadius: 13, background: accent, flex: '0 0 auto',
+        display: 'grid', placeItems: 'center', fontSize: 24, boxShadow: '0 0 0 3px rgba(255,255,255,0.85) inset' }}>{icon}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontFamily: "'Fredoka',sans-serif", fontWeight: 600, color: '#fff', fontSize: 17, lineHeight: 1.1 }}>{title}</div>
+        <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 600, color: 'rgba(255,255,255,0.55)', fontSize: 12.5, marginTop: 2 }}>{desc}</div>
+      </div>
+      <div style={{ width: 22, height: 22, borderRadius: '50%', flex: '0 0 auto',
+        border: active ? 'none' : '2px solid rgba(255,255,255,0.25)',
+        background: active ? accent : 'transparent', display: 'grid', placeItems: 'center',
+        color: '#fff', fontSize: 13, fontWeight: 900 }}>{active ? '✓' : ''}</div>
+    </button>
+  );
+}
+
+function Lobby({ onStart, tweaks, layout = 'mobile' }) {
+  const [mode, setMode] = React.useState('private');
+  const [players, setPlayers] = React.useState(4);
+  const [stack, setStack] = React.useState(true);
+  const [code] = React.useState(genCode);
+  const big = layout === 'desktop';
+  const modes = [
+    { id: 'private', icon: '🎟️', title: 'Private room', desc: 'Play with friends using a code', accent: '#0095DA' },
+    { id: 'passplay', icon: '🤝', title: 'Pass & play', desc: 'Share one device, pass each turn', accent: '#1FA84C' },
+    { id: 'spectate', icon: '👁️', title: 'Spectate', desc: 'Watch a table play out', accent: '#A78BFA' },
+  ];
+  return (
+    <div style={{ position: 'absolute', inset: 0, overflow: 'auto',
+      background: 'radial-gradient(120% 70% at 50% 0%, #2a2150 0%, #16112b 50%, #0d0a18 100%)',
+      padding: big ? '48px 20px 48px' : '64px 20px 40px', boxSizing: 'border-box',
+      display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+      <div style={{ width: '100%', maxWidth: big ? 460 : 'none' }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ display: 'inline-flex', gap: 6, transform: 'rotate(-4deg)' }}>
+            {[['U', '#E4002B'], ['N', '#1FA84C'], ['O', '#0095DA']].map(([l, c], i) => (
+              <span key={i} style={{ fontFamily: "'Fredoka',sans-serif", fontWeight: 700, fontStyle: 'italic',
+                fontSize: 58, color: '#fff', lineHeight: 1, width: 52, height: 64, display: 'grid', placeItems: 'center',
+                background: c, borderRadius: 14, transform: `rotate(${(i - 1) * 5}deg)`,
+                boxShadow: '0 0 0 4px rgba(255,255,255,0.92) inset, 0 8px 18px rgba(0,0,0,0.4)' }}>{l}</span>
+            ))}
+          </div>
+          <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, color: '#FFC400', fontSize: 13, letterSpacing: 3, marginTop: 12 }}>
+            PLAY TOGETHER
+          </div>
+        </div>
+        {modes.map((m) => (
+          <ModeCard key={m.id} icon={m.icon} title={m.title} desc={m.desc} accent={m.accent}
+            active={mode === m.id} onClick={() => setMode(m.id)} />
+        ))}
+        {mode === 'private' && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'rgba(255,255,255,0.05)', borderRadius: 16, padding: '12px 16px', marginTop: 4, marginBottom: 6 }}>
+            <div>
+              <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, color: 'rgba(255,255,255,0.5)', fontSize: 11, letterSpacing: 1 }}>ROOM CODE</div>
+              <div style={{ fontFamily: "'Fredoka',sans-serif", fontWeight: 700, color: '#fff', fontSize: 28, letterSpacing: 4 }}>{code}</div>
+            </div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, fontSize: 13, color: '#0095DA',
+              background: 'rgba(0,149,218,0.15)', padding: '8px 14px', borderRadius: 12 }}>Share 🔗</div>
+          </div>
+        )}
+        <div style={{ marginTop: 14, padding: '0 2px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+            <span style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, color: '#fff', fontSize: 14 }}>Players</span>
+            <span style={{ fontFamily: "'Fredoka',sans-serif", fontWeight: 700, color: '#FFC400', fontSize: 20 }}>{players}</span>
+          </div>
+          <input type="range" min={2} max={8} step={1} value={players}
+            onChange={(e) => setPlayers(+e.target.value)}
+            style={{ width: '100%', accentColor: '#FFC400' }} />
+          <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 700, color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4 }}>
+            {mode === 'passplay' ? `${players} people on this device` :
+              mode === 'spectate' ? `${players} bots at the table` :
+              `You + ${players - 1} friend${players - 1 > 1 ? 's' : ''}`}
+          </div>
+        </div>
+        <button onClick={() => setStack(!stack)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          width: '100%', marginTop: 16, padding: '13px 16px', borderRadius: 16, cursor: 'pointer', border: 'none',
+          background: 'rgba(255,255,255,0.05)', textAlign: 'left' }}>
+          <div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 800, color: '#fff', fontSize: 14 }}>Stacking +2 / +4</div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", fontWeight: 600, color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>Pile penalties onto the next player</div>
+          </div>
+          <div style={{ width: 46, height: 27, borderRadius: 14, background: stack ? '#1FA84C' : 'rgba(255,255,255,0.18)',
+            position: 'relative', transition: 'background .15s', flex: '0 0 auto' }}>
+            <div style={{ position: 'absolute', top: 3, left: stack ? 22 : 3, width: 21, height: 21, borderRadius: '50%',
+              background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+          </div>
+        </button>
+        <button onClick={() => onStart({ mode, players, stack })} style={{ width: '100%', marginTop: 22, border: 'none',
+          borderRadius: 18, cursor: 'pointer', padding: '17px',
+          background: 'linear-gradient(180deg,#FFD166,#F4A100)', color: '#3a2600',
+          fontFamily: "'Fredoka',sans-serif", fontWeight: 600, fontSize: 20,
+          boxShadow: '0 10px 26px rgba(244,161,0,0.45)' }}>
+          {mode === 'spectate' ? 'Watch game' : 'Start game'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Lobby });
+</script>
+
+<!-- ── App Root ────────────────────────────────────────────── -->
+<script type="text/babel">
+const E = window.UnoEngine;
+
+const THEMES = {
+  night: 'radial-gradient(120% 80% at 50% 18%, #2a2150 0%, #1a1430 45%, #0d0a18 100%)',
+  felt: 'radial-gradient(120% 80% at 50% 18%, #1c6b43 0%, #0f4d2e 45%, #06351e 100%)',
+  charcoal: 'radial-gradient(120% 80% at 50% 18%, #3a3a44 0%, #232329 45%, #141418 100%)',
+  ocean: 'radial-gradient(120% 80% at 50% 18%, #1b4a6b 0%, #103a52 45%, #07202f 100%)',
+};
+
+const TWEAK_DEFAULTS = { theme: 'night', turnSpeed: 850, confetti: true, botForget: true };
+
+function UnoApp({ layout = 'mobile' }) {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [screen, setScreen] = React.useState('lobby');
+  const [gs, setGs] = React.useState(null);
+  const [opts, setOpts] = React.useState(null);
+  const [shownSeat, setShownSeat] = React.useState(0);
+  const [passTarget, setPassTarget] = React.useState(0);
+  const [wildCard, setWildCard] = React.useState(null);
+  const [unoWindow, setUnoWindow] = React.useState(null);
+
+  function start(o) {
+    setOpts(o);
+    const n = o.players;
+    let cfg;
+    if (o.mode === 'passplay') cfg = { humanCount: n, botCount: 0, mode: 'passplay' };
+    else if (o.mode === 'spectate') cfg = { humanCount: 0, botCount: n, mode: 'spectate' };
+    else cfg = { humanCount: 1, botCount: n - 1, mode: 'private' };
+    cfg.allowStack = o.stack;
+    const state = E.newGame(cfg);
+    setGs(state); setUnoWindow(null); setWildCard(null);
+    if (o.mode === 'passplay') { setShownSeat(0); setPassTarget(0); setScreen('pass'); }
+    else { setShownSeat(0); setScreen('table'); }
+  }
+
+  React.useEffect(() => {
+    if (!gs || gs.status !== 'playing' || screen !== 'table') return;
+    const cur = gs.players[gs.current];
+    if (cur.isHuman && gs.mode !== 'spectate') return;
+    const delay = Math.max(220, t.turnSpeed);
+    const id = setTimeout(() => {
+      setGs((prev) => {
+        if (!prev || prev.status !== 'playing') return prev;
+        const c = prev.players[prev.current];
+        if (c.isHuman && prev.mode !== 'spectate') return prev;
+        const dec = E.botDecide(prev, t.botForget);
+        if (dec.type === 'draw') return E.drawAction(prev, prev.current);
+        return E.playCard(prev, prev.current, dec.card.id, dec.card.color, t.botForget);
+      });
+    }, delay);
+    return () => clearTimeout(id);
+  }, [gs && gs.seq, gs && gs.current, gs && gs.status, screen, t.turnSpeed, t.botForget]);
+
+  React.useEffect(() => {
+    if (!gs || !gs.catchTarget) { setUnoWindow(null); return; }
+    const target = gs.players.find((p) => p.id === gs.catchTarget);
+    if (!target) { setUnoWindow(null); return; }
+    const isHuman = target.isHuman;
+    const DUR = isHuman ? 3400 : 4200;
+    const startT = Date.now();
+    if (isHuman) setUnoWindow({ remaining: 1 }); else setUnoWindow(null);
+    let raf;
+    const tick = () => {
+      const el = Date.now() - startT;
+      if (isHuman) setUnoWindow({ remaining: Math.max(0, 1 - el / DUR) });
+      if (el >= DUR) {
+        setGs((prev) => {
+          if (!prev || prev.catchTarget !== target.id) return prev;
+          const idx = prev.players.findIndex((p) => p.id === target.id);
+          if (isHuman) return E.catchPlayer(prev, target.id);
+          return E.callUno(prev, idx);
+        });
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [gs && gs.catchTarget]);
+
+  React.useEffect(() => {
+    if (!gs || gs.mode !== 'passplay' || gs.status !== 'playing' || screen !== 'table') return;
+    const ct = gs.catchTarget && gs.players.find((p) => p.id === gs.catchTarget);
+    if (ct && ct.isHuman) return;
+    if (shownSeat !== gs.current) { setPassTarget(gs.current); setScreen('pass'); }
+  }, [gs && gs.seq, gs && gs.current, gs && gs.catchTarget, shownSeat, screen, gs && gs.mode, gs && gs.status]);
+
+  if (!gs || screen === 'lobby') {
+    return (<><Lobby onStart={start} tweaks={t} layout={layout} /><GameTweaks t={t} setTweak={setTweak} /></>);
+  }
+
+  const viewSeat = gs.mode === 'passplay' ? shownSeat : 0;
+  const spectating = gs.mode === 'spectate';
+  const isMyTurn = screen === 'table' && !spectating && gs.current === viewSeat && gs.status === 'playing';
+  const onCardTap = (card) => {
+    if (E.isWild(card)) { setWildCard(card); return; }
+    setGs((prev) => E.playCard(prev, prev.current, card.id, undefined, t.botForget));
+  };
+  const pickWild = (color) => {
+    const c = wildCard; setWildCard(null);
+    setGs((prev) => E.playCard(prev, prev.current, c.id, color, t.botForget));
+  };
+  const onDraw = () => setGs((prev) => E.drawAction(prev, prev.current));
+  const onPass = () => setGs((prev) => E.passAfterDraw(prev));
+  const onCallUno = () => setGs((prev) => E.callUno(prev, viewSeat));
+  const onCatch = (id) => setGs((prev) => E.catchPlayer(prev, id));
+  const onExit = () => { setScreen('lobby'); setGs(null); };
+  const winner = gs.status === 'won' ? gs.players.find((p) => p.id === gs.winner) : null;
+
+  return (
+    <>
+      <Table state={gs} view={viewSeat} isMyTurn={isMyTurn} spectating={spectating}
+        onCardTap={onCardTap} onDraw={onDraw} onPass={onPass} onCallUno={onCallUno}
+        onCatch={onCatch} onExit={onExit}
+        unoWindow={isMyTurn || gs.mode !== 'passplay' ? unoWindow : null}
+        tweaks={{ tableBg: THEMES[t.theme] }} layout={layout} />
+      {wildCard && <WildPicker plusFour={wildCard.kind === 'wild4'} onPick={pickWild} onCancel={() => setWildCard(null)} />}
+      {screen === 'pass' && gs.status === 'playing' && (
+        <PassScreen player={gs.players[passTarget]} onReady={() => { setShownSeat(passTarget); setScreen('table'); }} />
+      )}
+      {winner && (
+        <WinOverlay winner={winner} players={gs.players} confetti={t.confetti}
+          onPlayAgain={() => start(opts)} onExit={onExit} />
+      )}
+      <GameTweaks t={t} setTweak={setTweak} />
+    </>
+  );
+}
+
+function GameTweaks({ t, setTweak }) {
+  return (
+    <TweaksPanel>
+      <TweakSection label="Table" />
+      <TweakSelect label="Felt theme" value={t.theme}
+        options={['night', 'felt', 'charcoal', 'ocean']}
+        onChange={(v) => setTweak('theme', v)} />
+      <TweakSection label="Gameplay" />
+      <TweakSlider label="Bot speed" value={t.turnSpeed} min={300} max={1600} step={50} unit="ms"
+        onChange={(v) => setTweak('turnSpeed', v)} />
+      <TweakToggle label="Bots may forget UNO" value={t.botForget} onChange={(v) => setTweak('botForget', v)} />
+      <TweakToggle label="Winner confetti" value={t.confetti} onChange={(v) => setTweak('confetti', v)} />
+    </TweaksPanel>
+  );
+}
+
+// ── Layout Toggle + Root ───────────────────────────────────
+function LayoutToggle({ layout, onChange }) {
+  const opt = (id, icon, label) => (
+    <button onClick={() => onChange(id)} style={{
+      display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
+      padding: '8px 16px', borderRadius: 11,
+      background: layout === id ? '#fff' : 'transparent',
+      color: layout === id ? '#17171F' : 'rgba(255,255,255,0.65)',
+      fontFamily: "'Nunito', system-ui, sans-serif", fontWeight: 800, fontSize: 13,
+      boxShadow: layout === id ? '0 2px 8px rgba(0,0,0,0.25)' : 'none', transition: 'all .15s',
+    }}>
+      <span style={{ fontSize: 15 }}>{icon}</span>{label}
+    </button>
+  );
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
+      <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14,
+        background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
+        backdropFilter: 'blur(8px)' }}>
+        {opt('mobile', '📱', 'Mobile')}
+        {opt('desktop', '🖥️', 'Desktop')}
+      </div>
+    </div>
+  );
+}
+
+function Root() {
+  const [layout, setLayout] = React.useState(() => localStorage.getItem('uno_layout') || 'mobile');
+  const [scale, setScale] = React.useState(1);
+  const isDesk = layout === 'desktop';
+  const W = isDesk ? 1200 : 402, H = isDesk ? 780 : 874;
+  const cap = isDesk ? 1.0 : 1.18;
+  React.useEffect(() => {
+    const fit = () => {
+      const sw = window.innerWidth - 24, sh = window.innerHeight - 76;
+      setScale(Math.min(sw / W, sh / H, cap));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [W, H, cap]);
+  const change = (l) => { setLayout(l); localStorage.setItem('uno_layout', l); };
+  const inner = (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <UnoApp layout={layout} />
+    </div>
+  );
+  return (
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      <LayoutToggle layout={layout} onChange={change} />
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center', minHeight: 0, overflow: 'hidden' }}>
+        <div style={{ width: W * scale, height: H * scale }}>
+          <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+            {isDesk ? (
+              <ChromeWindow width={W} height={H} url="playuno.app/table" tabs={[{ title: 'UNO — Play Together' }]}>
+                {inner}
+              </ChromeWindow>
+            ) : (
+              <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('stage')).render(<Root />);
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #0a0810;
+  overflow: hidden;
+  font-family: 'Nunito', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar { width: 0; height: 0; }
+
+@keyframes ovFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes unoPulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50%       { transform: scale(1.07); filter: brightness(1.12); }
+}
+@keyframes playLand {
+  from { transform: rotate(4deg) translateY(-40px) scale(1.12); opacity: 0.4; }
+  to   { transform: rotate(4deg) translateY(0) scale(1); opacity: 1; }
+}
+@keyframes drawHint {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+@keyframes pendPulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.05); }
+}
+@keyframes confFall {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(520px) rotate(540deg); opacity: 0.9; }
+}
