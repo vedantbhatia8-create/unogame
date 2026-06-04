@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { PaintBackground } from './PaintBackground';
 
 function genCode() {
   const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -54,14 +55,13 @@ export function Lobby({ onStart, layout = 'mobile' }) {
   return (
     <div style={{
       position: 'absolute', inset: 0, overflow: 'auto',
-      background: 'radial-gradient(ellipse 160% 90% at 50% -5%, #251644 0%, #120d24 45%, #080612 100%)',
+      background: '#0d0208',
       padding: big ? '48px 20px' : '56px 20px 40px', boxSizing: 'border-box',
       display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
     }}>
-      {/* Background glow blobs */}
-      <div style={{ position: 'fixed', top: '-10%', left: '-5%', width: 340, height: 340, borderRadius: '50%', background: 'radial-gradient(circle, rgba(228,0,43,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ position: 'fixed', bottom: '0%', right: '-5%', width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,149,218,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ position: 'fixed', top: '40%', right: '0%', width: 240, height: 240, borderRadius: '50%', background: 'radial-gradient(circle, rgba(31,168,76,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <PaintBackground />
+      {/* Dark overlay so text stays readable */}
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.48)', pointerEvents: 'none' }} />
 
       <div style={{ width: '100%', maxWidth: big ? 460 : 'none', position: 'relative', zIndex: 1 }}>
         {/* Logo */}
