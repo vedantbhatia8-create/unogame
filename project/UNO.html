@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>UNO — Play Together</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #0a0810;
+    display: grid; place-items: center;
+    overflow: hidden;
+    font-family: 'Nunito', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+
+  @keyframes ovFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes unoPulse {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.07); filter: brightness(1.12); }
+  }
+  @keyframes playLand {
+    from { transform: rotate(4deg) translateY(-40px) scale(1.12); opacity: 0.4; }
+    to   { transform: rotate(4deg) translateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes drawHint {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+  @keyframes pendPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  @keyframes confFall {
+    0% { transform: translateY(0) rotate(0); opacity: 1; }
+    100% { transform: translateY(520px) rotate(540deg); opacity: 0.9; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="uno-engine.js"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="browser-window.jsx"></script>
+<script type="text/babel" src="uno-cards.jsx"></script>
+<script type="text/babel" src="uno-overlays.jsx"></script>
+<script type="text/babel" src="uno-table.jsx"></script>
+<script type="text/babel" src="uno-lobby.jsx"></script>
+<script type="text/babel" src="uno-app.jsx"></script>
+
+<script type="text/babel">
+  function LayoutToggle({ layout, onChange }) {
+    const opt = (id, icon, label) => (
+      <button onClick={() => onChange(id)} style={{
+        display: 'flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer',
+        padding: '8px 16px', borderRadius: 11,
+        background: layout === id ? '#fff' : 'transparent',
+        color: layout === id ? '#17171F' : 'rgba(255,255,255,0.65)',
+        fontFamily: "'Nunito', system-ui, sans-serif", fontWeight: 800, fontSize: 13,
+        boxShadow: layout === id ? '0 2px 8px rgba(0,0,0,0.25)' : 'none', transition: 'all .15s',
+      }}>
+        <span style={{ fontSize: 15 }}>{icon}</span>{label}
+      </button>
+    );
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
+        <div style={{
+          display: 'flex', gap: 4, padding: 4, borderRadius: 14,
+          background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(8px)',
+        }}>
+          {opt('mobile', '📱', 'Mobile')}
+          {opt('desktop', '🖥️', 'Desktop')}
+        </div>
+      </div>
+    );
+  }
+
+  function Root() {
+    const [layout, setLayout] = React.useState(() => localStorage.getItem('uno_layout') || 'mobile');
+    const [scale, setScale] = React.useState(1);
+    const isDesk = layout === 'desktop';
+    const W = isDesk ? 1200 : 402, H = isDesk ? 780 : 874;
+    const cap = isDesk ? 1.0 : 1.18;
+    React.useEffect(() => {
+      const fit = () => {
+        const sw = window.innerWidth - 24, sh = window.innerHeight - 76;
+        setScale(Math.min(sw / W, sh / H, cap));
+      };
+      fit();
+      window.addEventListener('resize', fit);
+      return () => window.removeEventListener('resize', fit);
+    }, [W, H, cap]);
+    const change = (l) => { setLayout(l); localStorage.setItem('uno_layout', l); };
+
+    const inner = (
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <UnoApp layout={layout} />
+      </div>
+    );
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
+        <LayoutToggle layout={layout} onChange={change} />
+        <div style={{ flex: 1, display: 'grid', placeItems: 'center', minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ width: W * scale, height: H * scale }}>
+           <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+            {isDesk ? (
+              <ChromeWindow width={W} height={H} url="playuno.app/table" tabs={[{ title: 'UNO — Play Together' }]}>
+                {inner}
+              </ChromeWindow>
+            ) : (
+              <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>
+            )}
+           </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('stage')).render(<Root />);
+</script>
+</body>
+</html>
