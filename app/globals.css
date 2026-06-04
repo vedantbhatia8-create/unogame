@@ -32,3 +32,25 @@ body {
   0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
   100% { transform: translateY(520px) rotate(540deg); opacity: 0.9; }
 }
+@keyframes orbDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(40px, -30px) scale(1.05); }
+  66%       { transform: translate(-20px, 20px) scale(0.95); }
+}
+@keyframes orbDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(-50px, 20px) scale(1.08); }
+  66%       { transform: translate(30px, -40px) scale(0.92); }
+}
+@keyframes orbDrift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(25px, 35px) scale(1.1); }
+}
+@keyframes cardFloat {
+  0%, 100% { transform: translateY(0) rotate(var(--r)); }
+  50%       { transform: translateY(-18px) rotate(var(--r)); }
+}
+@keyframes signInFadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
