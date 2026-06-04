@@ -3,13 +3,19 @@ import AuthButton from '@/components/auth/AuthButton';
 import SignInButton from '@/components/auth/SignInButton';
 import UnoGame from '@/components/game';
 
-const CARDS = [
-  { color: '#E4002B', label: '7', r: '-18deg', x: '8%',  y: '12%', delay: '0s'    },
-  { color: '#0095DA', label: '+2',r: '12deg',  x: '78%', y: '8%',  delay: '0.4s'  },
-  { color: '#1FA84C', label: '🔄',r: '-8deg',  x: '85%', y: '62%', delay: '0.8s'  },
-  { color: '#F4A100', label: '0', r: '22deg',  x: '5%',  y: '68%', delay: '0.2s'  },
-  { color: '#E4002B', label: 'W', r: '-14deg', x: '60%', y: '80%', delay: '1.0s'  },
-  { color: '#0095DA', label: '3', r: '6deg',   x: '30%', y: '88%', delay: '0.6s'  },
+const SPLATS = [
+  // red
+  { color: '#E4002B', top: '-18%',  left: '-12%', w: 680, h: 620, r: '45% 55% 40% 60% / 55% 45% 60% 40%', rot: '-15deg' },
+  { color: '#C8001A', top: '50%',   left: '-8%',  w: 420, h: 480, r: '60% 40% 55% 45% / 40% 65% 35% 60%', rot: '20deg'  },
+  // blue
+  { color: '#0095DA', top: '-10%',  left: '55%',  w: 560, h: 520, r: '40% 60% 55% 45% / 60% 40% 55% 45%', rot: '10deg'  },
+  { color: '#007BB8', top: '55%',   left: '62%',  w: 480, h: 440, r: '55% 45% 40% 60% / 45% 55% 65% 35%', rot: '-8deg'  },
+  // green
+  { color: '#1FA84C', top: '30%',   left: '20%',  w: 500, h: 460, r: '50% 50% 40% 60% / 60% 40% 55% 45%', rot: '30deg'  },
+  { color: '#178A3C', top: '-5%',   left: '28%',  w: 320, h: 360, r: '65% 35% 50% 50% / 40% 60% 45% 55%', rot: '-20deg' },
+  // yellow
+  { color: '#F4A100', top: '60%',   left: '25%',  w: 540, h: 400, r: '45% 55% 60% 40% / 55% 45% 40% 60%', rot: '12deg'  },
+  { color: '#FFC400', top: '72%',   left: '-5%',  w: 360, h: 320, r: '55% 45% 35% 65% / 50% 50% 60% 40%', rot: '-25deg' },
 ];
 
 export default async function Page() {
@@ -18,52 +24,26 @@ export default async function Page() {
 
   if (!user) {
     return (
-      <div style={{
-        position: 'fixed', inset: 0, overflow: 'hidden',
-        background: 'radial-gradient(ellipse 120% 80% at 50% -10%, #1a0d2e 0%, #0a0810 60%)',
-      }}>
-        {/* Colour orbs */}
-        <div style={{
-          position: 'absolute', width: 700, height: 700, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(228,0,43,0.18) 0%, transparent 65%)',
-          top: '-20%', left: '-15%',
-          animation: 'orbDrift1 14s ease-in-out infinite',
-        }} />
-        <div style={{
-          position: 'absolute', width: 600, height: 600, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(0,149,218,0.16) 0%, transparent 65%)',
-          bottom: '-15%', right: '-10%',
-          animation: 'orbDrift2 18s ease-in-out infinite',
-        }} />
-        <div style={{
-          position: 'absolute', width: 450, height: 450, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(31,168,76,0.14) 0%, transparent 65%)',
-          top: '30%', right: '5%',
-          animation: 'orbDrift3 11s ease-in-out infinite',
-        }} />
-        <div style={{
-          position: 'absolute', width: 350, height: 350, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(244,161,0,0.12) 0%, transparent 65%)',
-          bottom: '10%', left: '5%',
-          animation: 'orbDrift1 16s ease-in-out infinite reverse',
-        }} />
-
-        {/* Floating background cards */}
-        {CARDS.map((c, i) => (
+      <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: '#111' }}>
+        {/* Paint splats */}
+        {SPLATS.map((s, i) => (
           <div key={i} style={{
-            position: 'absolute', left: c.x, top: c.y,
-            '--r': c.r,
-            width: 54, height: 76, borderRadius: 10,
-            background: c.color,
-            boxShadow: `0 0 0 3px rgba(255,255,255,0.85) inset, 0 8px 24px rgba(0,0,0,0.5)`,
-            display: 'grid', placeItems: 'center',
-            fontSize: 20, fontWeight: 700, color: '#fff',
-            fontFamily: "'Fredoka', sans-serif",
-            opacity: 0.25,
-            transform: `rotate(${c.r})`,
-            animation: `cardFloat 4s ${c.delay} ease-in-out infinite`,
-          }}>{c.label}</div>
+            position: 'absolute',
+            top: s.top, left: s.left,
+            width: s.w, height: s.h,
+            background: s.color,
+            borderRadius: s.r,
+            transform: `rotate(${s.rot})`,
+            opacity: 0.92,
+            filter: 'blur(2px)',
+          }} />
         ))}
+
+        {/* Dark vignette to make card readable */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse 70% 70% at 50% 50%, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 100%)',
+        }} />
 
         {/* Sign-in card */}
         <div style={{
@@ -74,15 +54,14 @@ export default async function Page() {
           <div style={{
             animation: 'signInFadeUp 0.5s ease both',
             textAlign: 'center', padding: '44px 36px 40px',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(0,0,0,0.55)',
+            border: '1px solid rgba(255,255,255,0.15)',
             borderRadius: 28,
-            backdropFilter: 'blur(24px)',
-            WebkitBackdropFilter: 'blur(24px)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
             maxWidth: 360, width: '100%',
-            boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
           }}>
-            {/* UNO logo */}
             <div style={{ display: 'inline-flex', gap: 7, transform: 'rotate(-4deg)', marginBottom: 24 }}>
               {[['U', '#E4002B'], ['N', '#1FA84C'], ['O', '#0095DA']].map(([l, c], i) => (
                 <span key={i} style={{
@@ -90,7 +69,7 @@ export default async function Page() {
                   fontSize: 60, color: '#fff', lineHeight: 1,
                   width: 54, height: 66, display: 'grid', placeItems: 'center',
                   background: c, borderRadius: 14, transform: `rotate(${(i - 1) * 5}deg)`,
-                  boxShadow: `0 0 0 4px rgba(255,255,255,0.92) inset, 0 12px 28px ${c}80`,
+                  boxShadow: `0 0 0 4px rgba(255,255,255,0.92) inset, 0 12px 28px ${c}90`,
                 }}>{l}</span>
               ))}
             </div>
@@ -102,7 +81,7 @@ export default async function Page() {
 
             <div style={{
               fontFamily: "'Nunito',sans-serif", fontWeight: 700,
-              color: 'rgba(255,255,255,0.45)', fontSize: 14, marginBottom: 32,
+              color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 32,
             }}>Challenge friends. Call UNO. Win.</div>
 
             <SignInButton />
