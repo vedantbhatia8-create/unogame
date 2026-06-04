@@ -6,7 +6,7 @@ import { Table } from './table';
 import { Lobby } from './lobby';
 import { WildPicker, WinOverlay, PassScreen } from './overlays';
 import { useTweaks, TweaksPanel, TweakSection, TweakSlider, TweakToggle, TweakSelect } from './tweaks';
-import { IOSDevice, ChromeWindow } from './frames';
+import { IOSDevice } from './frames';
 
 const THEMES = {
   night:    'radial-gradient(120% 80% at 50% 18%, #2a2150 0%, #1a1430 45%, #0d0a18 100%)',
@@ -250,13 +250,7 @@ export default function UnoGame() {
       <div style={{ flex: 1, display: 'grid', placeItems: 'center', minHeight: 0, overflow: 'hidden' }}>
         <div style={{ width: W * scale, height: H * scale }}>
           <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-            {isDesk ? (
-              <ChromeWindow width={W} height={H} url="playuno.app/table" tabs={[{ title: 'UNO — Play Together' }]}>
-                {inner}
-              </ChromeWindow>
-            ) : (
-              <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>
-            )}
+            {isDesk ? inner : <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>}
           </div>
         </div>
       </div>
