@@ -15,7 +15,7 @@ const THEMES = {
   ocean:    'radial-gradient(120% 80% at 50% 18%, #1b4a6b 0%, #103a52 45%, #07202f 100%)',
 };
 
-const TWEAK_DEFAULTS = { theme: 'night', turnSpeed: 850, confetti: true, botForget: true };
+const TWEAK_DEFAULTS = { theme: 'night', turnSpeed: 3000, confetti: true, botForget: true };
 
 // ── Game state machine ────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ function UnoApp({ layout }) {
         if (dec.type === 'draw') return E.drawAction(prev, prev.current);
         return E.playCard(prev, prev.current, dec.card.id, dec.card.color, t.botForget);
       });
-    }, Math.max(220, t.turnSpeed));
+    }, Math.max(3000, t.turnSpeed));
     return () => clearTimeout(id);
   }, [gs?.seq, gs?.current, gs?.status, screen, t.turnSpeed, t.botForget]);
 
@@ -167,7 +167,7 @@ function GameTweaks({ t, setTweak }) {
         options={['night', 'felt', 'charcoal', 'ocean']}
         onChange={(v) => setTweak('theme', v)} />
       <TweakSection label="Gameplay" />
-      <TweakSlider label="Bot speed" value={t.turnSpeed} min={300} max={1600} step={50} unit="ms"
+      <TweakSlider label="Bot speed" value={t.turnSpeed} min={3000} max={8000} step={250} unit="ms"
         onChange={(v) => setTweak('turnSpeed', v)} />
       <TweakToggle label="Bots may forget UNO" value={t.botForget} onChange={(v) => setTweak('botForget', v)} />
       <TweakToggle label="Winner confetti" value={t.confetti} onChange={(v) => setTweak('confetti', v)} />

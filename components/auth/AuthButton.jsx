@@ -34,6 +34,16 @@ export default function AuthButton({ user }) {
       >
         {user.email}
       </span>
+      {user.email === 'vedantbhatia8@gmail.com' && (
+        <a href="/admin" style={{
+          border: 'none', cursor: 'pointer',
+          background: 'rgba(228,0,43,0.2)', color: '#ff6b6b',
+          fontFamily: "'Nunito', system-ui, sans-serif",
+          fontWeight: 800, fontSize: 12,
+          padding: '5px 11px', borderRadius: 8,
+          textDecoration: 'none', whiteSpace: 'nowrap',
+        }}>Admin</a>
+      )}
       <form action={signOut}>
         <button
           type="submit"
