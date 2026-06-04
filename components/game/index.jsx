@@ -247,13 +247,19 @@ export default function UnoGame() {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>
       <LayoutToggle layout={layout} onChange={change} />
-      <div style={{ flex: 1, display: 'grid', placeItems: 'center', minHeight: 0, overflow: 'hidden' }}>
-        <div style={{ width: W * scale, height: H * scale }}>
-          <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-            {isDesk ? inner : <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>}
+      {isDesk ? (
+        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+          {inner}
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: 'grid', placeItems: 'center', minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ width: W * scale, height: H * scale }}>
+            <div style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+              <IOSDevice dark width={W} height={H}>{inner}</IOSDevice>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
